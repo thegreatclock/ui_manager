@@ -1,0 +1,27 @@
+{
+  "displayName": "UI Manager",
+  "name": "com.greatclock.uimanager",
+  "version": "1.0.0",
+  "unity": "2018.4",
+  "description": "UI Manager (Window, Popop, Dialog, Toast, etc.) for game development.",
+  "type": "library",
+  "dependencies": {
+    "com.greatclock.tweens": "1.0.0",
+    "com.greatclock.utils": "1.0.0"
+  },
+  "keywords": [
+    "ui",
+    "window",
+    "popup",
+    "dialog",
+    "toast"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thegreatclock/ui_manager.git"
+  },
+  "author": {
+    "name": "greatclock",
+    "email": "thegreatclock@hotmail.com"
+  }
+}

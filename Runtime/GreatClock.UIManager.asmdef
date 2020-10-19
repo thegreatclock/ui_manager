@@ -1,0 +1,15 @@
+{
+    "name": "GreatClock.UIManager",
+    "references": [
+        "GreatClock.Utils.Timer",
+        "GreatClock.Tweens"
+    ],
+    "optionalUnityReferences": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": []
+}

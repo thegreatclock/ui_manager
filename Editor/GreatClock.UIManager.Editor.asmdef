@@ -1,0 +1,17 @@
+{
+    "name": "GreatClock.UIManager.Editor",
+    "references": [
+        "GreatClock.Tweens",
+        "GreatClock.UIManager"
+    ],
+    "optionalUnityReferences": [],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": []
+}
