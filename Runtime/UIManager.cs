@@ -168,7 +168,7 @@ namespace GreatClock.Common.UI {
 				}
 			}
 			private void StartLoad() {
-				mUILoader.LoadInstance("UI/Window/" + name, mOnLoaded);
+				mUILoader.LoadWindow(name, mOnLoaded);
 			}
 			private void OnLoaded(GameObject go) {
 				System.Action callback = mOnLoadedCallback;
@@ -244,16 +244,18 @@ namespace GreatClock.Common.UI {
 		private static Stack<PopupProcess> temp_popups = new Stack<PopupProcess>();
 		private Stack<PopupProcess> mPopups = new Stack<PopupProcess>();
 
+		private PopupProcess.LoadedCallback mOnPopupLoaded;
+
 		public void ShowPopup(string popupName, object param, System.Action onClose) {
 			ClosePopupByName(popupName, true);
 			if (mPopups.Count > 0) {
-				PopupProcess cp = mPopups.Peek();
-				cp.Hide();
+				RemoveFocus(mPopups.Peek(), true);
 			}
 			PopupProcess popup = PopupProcess.Get(popupName, param, onClose);
 			mPopups.Push(popup);
 			AddFocus(popup, false, true);
-			popup.Start(mUILoader);
+			if (mOnPopupLoaded == null) { mOnPopupLoaded = OnPopupLoaded; }
+			popup.Start(mUILoader, mOnPopupLoaded);
 		}
 
 		public void ClosePopup(string popupName) {
@@ -271,18 +273,29 @@ namespace GreatClock.Common.UI {
 				}
 				temp_popups.Push(popup);
 			}
+			bool isTopClosed = true;
 			while (temp_popups.Count > 0) {
 				mPopups.Push(temp_popups.Pop());
+				isTopClosed = false;
 			}
 			if (target != null) {
 				RemoveFocus(target, true);
-				target.Close();
-				PopupProcess.Cache(target);
+				target.Close(isTopClosed);
 			}
-			if (mPopups.Count > 0) {
+			if (isTopClosed && mPopups.Count > 0) {
 				PopupProcess popup = mPopups.Peek();
 				if (!popup.visible) { popup.Show(); }
 			}
+		}
+
+		private void OnPopupLoaded(PopupProcess popup, bool overlay) {
+			if (mPopups.Peek() != popup) { return; }
+			if (overlay) { return; }
+			mPopups.Pop();
+			if (mPopups.Count > 0) {
+				mPopups.Peek().Hide();
+			}
+			mPopups.Push(popup);
 		}
 
 		private void ClosePopupByName(string popupName, bool internalCall) {
@@ -296,21 +309,23 @@ namespace GreatClock.Common.UI {
 				}
 				temp_popups.Push(popup);
 			}
+			bool isTopClosed = true;
 			while (temp_popups.Count > 0) {
 				mPopups.Push(temp_popups.Pop());
+				isTopClosed = false;
 			}
 			if (target != null) {
 				RemoveFocus(target, !internalCall);
-				target.Close();
-				PopupProcess.Cache(target);
+				target.Close(isTopClosed);
 			}
-			if (mPopups.Count > 0) {
+			if (isTopClosed && mPopups.Count > 0) {
 				PopupProcess popup = mPopups.Peek();
 				if (!popup.visible) { popup.Show(); }
 			}
 		}
 
 		private class PopupProcess : IFocus {
+			public delegate void LoadedCallback(PopupProcess popup, bool overlay);
 			public static RectTransform popup_root;
 			public string name { get; private set; }
 			public object param { get; private set; }
@@ -320,16 +335,22 @@ namespace GreatClock.Common.UI {
 			private List<MonoBehaviour> mBehaviours = new List<MonoBehaviour>();
 			private bool mActive;
 			private IUILoader mUILoader;
+			private LoadedCallback mOnLoadedCallback;
 			private System.Action<GameObject> mOnLoaded;
+			private System.Action mOnCloseAnimCallback;
 			private int mFocusState;
+			private bool mClosing;
+			private int mClosingCount;
 			private PopupProcess() {
 				mOnLoaded = OnLoaded;
+				mOnCloseAnimCallback = OnCloseAnimCallback;
 			}
-			public void Start(IUILoader uiLoader) {
+			public void Start(IUILoader uiLoader, LoadedCallback callback) {
 				mActive = true;
 				visible = true;
 				mUILoader = uiLoader;
-				mUILoader.LoadInstance("UI/Popup/" + name, mOnLoaded);
+				mOnLoadedCallback = callback;
+				mUILoader.LoadPopup(name, mOnLoaded);
 			}
 			public void Show() {
 				if (visible) { return; }
@@ -341,20 +362,32 @@ namespace GreatClock.Common.UI {
 				visible = false;
 				if (gameObject != null) { gameObject.SetActive(false); }
 			}
-			public void Close() {
+			public void Close(bool anim) {
 				if (gameObject != null) {
+					mClosing = true;
 					for (int i = 0, imax = mBehaviours.Count; i < imax; i++) {
-						IUIFocusHandler handler = mBehaviours[i] as IUIFocusHandler;
-						if (handler != null) {
-							try { handler.OnClose(); } catch (System.Exception e) { Debug.LogException(e); }
+						MonoBehaviour behaviour = mBehaviours[i];
+						IUIFocusHandler focusHandler = behaviour as IUIFocusHandler;
+						if (focusHandler != null) {
+							try { focusHandler.OnClose(); } catch (System.Exception e) { Debug.LogException(e); }
+						}
+						if (anim) {
+							IPopupCloseAnim closeAnim = behaviour as IPopupCloseAnim;
+							if (closeAnim != null) {
+								mClosingCount++;
+								closeAnim.ExecuteClose(mOnCloseAnimCallback);
+							}
 						}
 					}
-					mUILoader.UnloadInstance(gameObject);
-					gameObject = null;
-					mBehaviours.Clear();
+					mClosing = false;
 				}
 				System.Action callback = onClose;
-				if (callback != null) { callback(); }
+				if (callback != null) { try { callback(); } catch (System.Exception e) { Debug.LogException(e); } }
+				if (mClosingCount > 0) {
+					// TODO block ui
+				} else {
+					ClearInstance();
+				}
 			}
 			public void GetFocus() {
 				if (gameObject != null) {
@@ -395,15 +428,19 @@ namespace GreatClock.Common.UI {
 				rectTrans.offsetMax = Vector2.zero;
 				rectTrans.localRotation = Quaternion.identity;
 				rectTrans.localScale = Vector3.one;
+				bool overlay = false;
 				mBehaviours.Clear();
 				go.GetComponents<MonoBehaviour>(mBehaviours);
 				bool paraSet = false;
 				for (int i = 0, imax = mBehaviours.Count; i < imax; i++) {
-					IUIParameterHandler handler = mBehaviours[i] as IUIParameterHandler;
+					MonoBehaviour behaviour = mBehaviours[i];
+					IUIParameterHandler handler = behaviour as IUIParameterHandler;
 					if (handler != null) {
 						try { handler.SetParameter(param); } catch (System.Exception e) { Debug.LogError(e); }
 						paraSet = true;
 					}
+					IPopupOverlay popupOverlay = behaviour as IPopupOverlay;
+					if (popupOverlay != null && popupOverlay.Overlay) { overlay = true; }
 				}
 				if (param != null && !paraSet) {
 					Debug.LogErrorFormat(go, "[UIManager] No parameter handler found for '{0]' !", name);
@@ -418,6 +455,21 @@ namespace GreatClock.Common.UI {
 					mFocusState = 2;
 				}
 				go.SetActive(visible);
+				LoadedCallback callback = mOnLoadedCallback;
+				mOnLoadedCallback = null;
+				callback(this, overlay);
+			}
+			private void OnCloseAnimCallback() {
+				mClosingCount--;
+				if (mClosingCount == 0 && !mClosing) { ClearInstance(); }
+			}
+			private void ClearInstance() {
+				if (gameObject != null) {
+					mUILoader.UnloadInstance(gameObject);
+					gameObject = null;
+				}
+				mBehaviours.Clear();
+				Cache(this);
 			}
 			private static Queue<PopupProcess> cached_instances = new Queue<PopupProcess>();
 			public static PopupProcess Get(string name, object param, System.Action onClose) {
@@ -434,9 +486,11 @@ namespace GreatClock.Common.UI {
 				popup.param = param;
 				popup.onClose = onClose;
 				popup.mFocusState = 0;
+				popup.mClosing = false;
+				popup.mClosingCount = 0;
 				return popup;
 			}
-			public static void Cache(PopupProcess popup) {
+			private static void Cache(PopupProcess popup) {
 				if (popup == null) { return; }
 				popup.mActive = false;
 				popup.visible = false;
@@ -446,6 +500,8 @@ namespace GreatClock.Common.UI {
 				popup.param = null;
 				popup.onClose = null;
 				popup.mFocusState = 0;
+				popup.mClosing = false;
+				popup.mClosingCount = 0;
 				cached_instances.Enqueue(popup);
 			}
 		}
@@ -564,7 +620,7 @@ namespace GreatClock.Common.UI {
 
 		public void SetLoadingMask(string name) {
 			if (string.IsNullOrEmpty(name)) { return; }
-			mUILoader.LoadInstance("UI/LoadingMask/" + name, (GameObject go) => {
+			mUILoader.LoadLoadingMask(name, (GameObject go) => {
 				if (go == null) { return; }
 				if (mLoadingKeys.Count > 0) {
 					mUILoader.UnloadInstance(go);
